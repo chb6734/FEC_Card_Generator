@@ -150,6 +150,7 @@ def main():
     print("\n[ 옵션 선택 ]")
     print("1: 직접 음식 이름 입력 (또는 foods.txt 사용)")
     print("2: Supabase에서 안 채워진 데이터 가져오기 (image_url_white/blue 기준)")
+    print("3: Supabase에서 투명 배경 음식 이미지만 만들고 저장하기 (image_url_food 기준)")
     choice = input("입력: ")
 
     supabase = None
@@ -160,6 +161,20 @@ def main():
         try:
             # image_url_white가 null인 데이터를 우선 찾습니다. (이 컬럼들을 먼저 생성하셨다고 가정합니다)
             res = supabase.table(SUPABASE_TABLE).select("id, name").is_("image_url_white", "null").execute()
+            foods_data = res.data
+        except Exception as e:
+            logging.error(f"Supabase 조회 실패: {e}")
+            return
+            
+        if not foods_data:
+            logging.info("Supabase에 이미지가 필요한 데이터가 없습니다.")
+            return
+        logging.info(f"Supabase에서 가져온 음식 수: {len(foods_data)}")
+    elif choice.strip() == "3":
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        try:
+            # image_url_food가 null인 데이터를 찾습니다. (이 컬럼을 먼저 생성하셔야 합니다)
+            res = supabase.table(SUPABASE_TABLE).select("id, name").is_("image_url_food", "null").execute()
             foods_data = res.data
         except Exception as e:
             logging.error(f"Supabase 조회 실패: {e}")
@@ -200,29 +215,49 @@ def main():
             # 2. Remove background
             img_nobg = remove(img)
             
-            # 3. Create cards
-            b_path = create_card(img_nobg, food_name, BLUE_BG, WHITE_BG, font, "blue")
-            w_path = create_card(img_nobg, food_name, WHITE_BG, BLUE_BG, font, "white")
-            
-            # 4. Upload to Supabase and update column
-            if choice.strip() == "2" and supabase:
-                try:
-                    with open(w_path, "rb") as f:
-                        supabase.storage.from_(SUPABASE_BUCKET).upload(f"cards/{food_id}_white.webp", f, {"content-type": "image/webp", "upsert": "true"})
-                    with open(b_path, "rb") as f:
-                        supabase.storage.from_(SUPABASE_BUCKET).upload(f"cards/{food_id}_blue.webp", f, {"content-type": "image/webp", "upsert": "true"})
+            if choice.strip() == "3":
+                # Option 3: 빈 공간 잘라내고 투명 이미지 자체만 저장/업로드
+                food_path = os.path.join(OUTPUT_DIR, f"{food_id}_food.webp")
+                bbox = img_nobg.getbbox()
+                cropped = img_nobg.crop(bbox) if bbox else img_nobg
+                cropped.save(food_path, "WEBP", quality=80)
+                
+                if supabase:
+                    try:
+                        with open(food_path, "rb") as f:
+                            supabase.storage.from_(SUPABASE_BUCKET).upload(f"cards/{food_id}_food.webp", f, {"content-type": "image/webp", "upsert": "true"})
+                        f_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(f"cards/{food_id}_food.webp")
                         
-                    w_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(f"cards/{food_id}_white.webp")
-                    b_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(f"cards/{food_id}_blue.webp")
-                    
-                    # 업데이트
-                    supabase.table(SUPABASE_TABLE).update({
-                        "image_url_white": w_url,
-                        "image_url_blue": b_url
-                    }).eq("id", food_id).execute()
-                    logging.info(f"Supabase 업데이트 완료: {food_name}")
-                except Exception as upload_e:
-                    logging.error(f"Supabase 업로드/업데이트 실패: {upload_e}")
+                        supabase.table(SUPABASE_TABLE).update({
+                            "image_url_food": f_url
+                        }).eq("id", food_id).execute()
+                        logging.info(f"Supabase 투명 이미지 업데이트 완료: {food_name}")
+                    except Exception as upload_e:
+                        logging.error(f"Supabase 투명 이미지 업로드 실패: {upload_e}")
+            else:
+                # 3. Create cards
+                b_path = create_card(img_nobg, food_name, BLUE_BG, WHITE_BG, font, "blue")
+                w_path = create_card(img_nobg, food_name, WHITE_BG, BLUE_BG, font, "white")
+                
+                # 4. Upload to Supabase and update column
+                if choice.strip() == "2" and supabase:
+                    try:
+                        with open(w_path, "rb") as f:
+                            supabase.storage.from_(SUPABASE_BUCKET).upload(f"cards/{food_id}_white.webp", f, {"content-type": "image/webp", "upsert": "true"})
+                        with open(b_path, "rb") as f:
+                            supabase.storage.from_(SUPABASE_BUCKET).upload(f"cards/{food_id}_blue.webp", f, {"content-type": "image/webp", "upsert": "true"})
+                            
+                        w_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(f"cards/{food_id}_white.webp")
+                        b_url = supabase.storage.from_(SUPABASE_BUCKET).get_public_url(f"cards/{food_id}_blue.webp")
+                        
+                        # 업데이트
+                        supabase.table(SUPABASE_TABLE).update({
+                            "image_url_white": w_url,
+                            "image_url_blue": b_url
+                        }).eq("id", food_id).execute()
+                        logging.info(f"Supabase 업데이트 완료: {food_name}")
+                    except Exception as upload_e:
+                        logging.error(f"Supabase 업로드/업데이트 실패: {upload_e}")
             
         except Exception as e:
             logging.error(f"Error processing '{food_name}': {e}")
