@@ -1,0 +1,5 @@
+openai
+rembg
+Pillow
+requests
+tqdm

@@ -1,0 +1,8 @@
+.env
+__pycache__/
+output/
+foods.txt
+*.webp
+*.jpg
+*.png
+.DS_Store
