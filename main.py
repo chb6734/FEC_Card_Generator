@@ -54,7 +54,7 @@ def read_foods():
         with open(INPUT_FILE, "w", encoding="utf-8") as f:
             f.write("Coffee\nCake\nScone")
         logging.info("Created a sample foods.txt file for you.")
-    ~``
+    
     with open(INPUT_FILE, "r", encoding="utf-8") as f:
         foods = [line.strip() for line in f if line.strip()]
         
